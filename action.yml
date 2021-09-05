@@ -1,0 +1,107 @@
+name: Deploy SSL certificate to Azure Web App
+description: Deploy SSL certificate to Azure Web App (including Function App).
+branding:
+  icon: lock
+  color: green
+inputs:
+  azcliversion:
+    description: Azure CLI version to be used to execute the script. If not provided, latest version is used.
+    required: false
+    default: latest
+  subscription:
+    description: Name or ID of subscription. You can configure the default subscription using `az account set -s NAME_OR_ID`.
+    required: false
+    default: ''
+  resource-group:
+    description: Name of resource group. You can configure the default group using `az configure --defaults group=<name>`.
+    required: false
+    default: ''
+  webapp-name:
+    description: Name of the web app.
+    required: true
+  certificate-file:
+    description: The filepath for the `.pfx` file.
+    required: true
+  certificate-password:
+    description: The ssl cert password.
+    required: true
+  delete-old-certificates:
+    description: Whether to delete ALL old certificates on the Web App or not.
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - uses: azure/CLI@v1
+      with:
+        azcliversion: ${{ inputs.azcliversion }}
+        inlineScript: |
+          if [[ "$AZ_INPUT_DELETE_OLD_CERTIFICATES" != "true" ]] && [[ "$AZ_INPUT_DELETE_OLD_CERTIFICATES" != "false" ]]; then
+              echo "The input `delete-old-certificates` must be `true` or `false`."
+              exit 1
+          fi
+
+          # Parse input arguments
+          AZ_ARGS=()
+          if ! [[ -z "$AZ_INPUT_SUBSCRIPTION" ]]; then
+              AZ_ARGS+=("--subscription")
+              AZ_ARGS+=("$AZ_INPUT_SUBSCRIPTION")
+          fi
+          if ! [[ -z "$AZ_INPUT_RESOURCE_GROUP" ]]; then
+              AZ_ARGS+=("--resource-group")
+              AZ_ARGS+=("$AZ_INPUT_RESOURCE_GROUP")
+          fi
+          AZ_ARGS_WITH_WEBAPP_NAME=("${AZ_ARGS[@]}")
+          AZ_ARGS_WITH_NAME=("${AZ_ARGS[@]}")
+          if ! [[ -z "$AZ_INPUT_WEBAPP_NAME" ]]; then
+              AZ_ARGS_WITH_WEBAPP_NAME+=("--webapp-name")
+              AZ_ARGS_WITH_NAME+=("--name")
+              AZ_ARGS_WITH_WEBAPP_NAME+=("$AZ_INPUT_WEBAPP_NAME")
+              AZ_ARGS_WITH_NAME+=("$AZ_INPUT_WEBAPP_NAME")
+          fi
+
+          # Get the list of slots
+          echo "* Getting the list of slots"
+          AZ_SLOTS="$(az webapp deployment slot list "${AZ_ARGS_WITH_NAME[@]}" | python3 -c "import sys, json; data = json.load(sys.stdin); print(' '.join([item['name'] for item in data]))")"
+          echo "  Slots: $AZ_SLOTS"
+
+          # Get the list of old certificates
+          if [[ "$AZ_INPUT_DELETE_OLD_CERTIFICATES" == "true" ]]; then
+              echo "* Getting the list of old certificates"
+              AZ_OLD_THUMBPRINTS="$(az webapp config hostname list "${AZ_ARGS_WITH_WEBAPP_NAME[@]}" | python3 -c "import sys, json; data = json.load(sys.stdin); result = [item['thumbprint'] for item in data if item['thumbprint'] is not None]; print(' '.join(set(result)))")"
+              echo "  Old certificates: $AZ_OLD_THUMBPRINTS"
+          fi
+
+          # Upload new certificate
+          echo "* Uploading new certificate"
+          AZ_NEW_THUMBPRINT="$(az webapp config ssl upload "${AZ_ARGS_WITH_NAME[@]}" --certificate-file "$AZ_INPUT_CERTIFICATE_FILE" --certificate-password "$AZ_INPUT_CERTIFICATE_PASSWORD" | python3 -c "import sys, json; data = json.load(sys.stdin); print(data['thumbprint'])")"
+          echo "  New certificate: $AZ_NEW_THUMBPRINT"
+
+          # Bind certificate to slots (including the default production slot)
+          echo "* Binding new certificate"
+          AZ_ARG_FOR_SLOTS=("")
+          for AZ_SLOT in $AZ_SLOTS; do
+              AZ_ARG_FOR_SLOTS+=("--slot $AZ_SLOT")
+          done
+          for AZ_ARG_FOR_SLOT in "${AZ_ARG_FOR_SLOTS[@]}"; do
+              echo "  ${AZ_ARG_FOR_SLOT:-default production slot}"
+              az webapp config ssl bind "${AZ_ARGS_WITH_NAME[@]}" --ssl-type SNI --certificate-thumbprint "$AZ_NEW_THUMBPRINT" $AZ_ARG_FOR_SLOT >/dev/null
+          done
+
+          # Delete old certificates
+          if [[ "$AZ_INPUT_DELETE_OLD_CERTIFICATES" == "true" ]]; then
+              echo "* Deleting old certificates"
+              for AZ_OLD_THUMBPRINT in $AZ_OLD_THUMBPRINTS; do
+                  if [[ "$AZ_OLD_THUMBPRINT" == "$AZ_NEW_THUMBPRINT" ]]; then
+                      continue
+                  fi
+                  echo "  $AZ_OLD_THUMBPRINT"
+                  az webapp config ssl delete "${AZ_ARGS[@]}" --certificate-thumbprint "$AZ_OLD_THUMBPRINT" >/dev/null
+              done
+          fi
+      env:
+        AZ_INPUT_SUBSCRIPTION: ${{ inputs.subscription }}
+        AZ_INPUT_RESOURCE_GROUP: ${{ inputs.resource-group }}
+        AZ_INPUT_WEBAPP_NAME: ${{ inputs.webapp-name }}
+        AZ_INPUT_CERTIFICATE_FILE: ${{ inputs.certificate-file }}
+        AZ_INPUT_CERTIFICATE_PASSWORD: ${{ inputs.certificate-password }}
+        AZ_INPUT_DELETE_OLD_CERTIFICATES: ${{ inputs.delete-old-certificates }}
