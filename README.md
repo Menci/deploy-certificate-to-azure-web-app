@@ -10,8 +10,6 @@ Supports multiple deployment slots (will be handled automatically) and multiple 
 >
 > If you want to upload SSL certificates to Azure Key Vault, just write a one-liner `azure/CLI` command.
 
-**Note**: Please login to Azure with `azure/login` before using this action. See [`azure/login`'s documentation](https://github.com/marketplace/actions/azure-login) for more info.
-
 ```yaml
 jobs:
   deploy-to-webapp:
@@ -24,13 +22,10 @@ jobs:
           # If you just commited and pushed your newly issued certificate to this repo in a previous job,
           # use `ref` to make sure checking out the newest commit in this job
           ref: ${{ github.ref }}
-      - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - uses: Menci/deploy-certificate-to-azure-web-app@beta-v1
+      - uses: Menci/deploy-certificate-to-azure-web-app@beta-v2
         with:
           azcliversion: latest                               # Omit to use 'latest'.
+          creds: ${{ secrets.AZURE_CREDENTIALS }}            # The same as `cred` in `azure/login`
           subscription: 123e4567-e89b-42d3-a456-556642440000 # Omit if you have set the default subscription.
           resource-group: MyResourceGroup                    # Omit if you have set the default resource group.
           webapp-name: my-awesome-webapp

@@ -8,6 +8,10 @@ inputs:
     description: Azure CLI version to be used to execute the script. If not provided, latest version is used.
     required: false
     default: latest
+  creds:
+    description: Credentials for `az login` command.
+    required: false
+    default: ''
   subscription:
     description: Name or ID of subscription. You can configure the default subscription using `az account set -s NAME_OR_ID`.
     required: false
@@ -31,6 +35,21 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - uses: azure/CLI@v1
+      with:
+        azcliversion: ${{ inputs.azcliversion }}
+        inlineScript: |
+          AZ_PYTHON_PARSE_CODE='import sys, re; s = "".join(sys.stdin.readlines()); data = {a: b for a, b in [x.split(":") for x in re.sub("[\s\"]", "", s)[1:-1].split(",")]}'
+
+          AZ_CLIENT_ID="$(python3 -c "$AZ_PYTHON_PARSE_CODE; print(data['clientId'])" <<< "$AZ_CRED")"
+          AZ_CLIENT_SECRET="$(python3 -c "$AZ_PYTHON_PARSE_CODE; print(data['clientSecret'])" <<< "$AZ_CRED")"
+          AZ_SUBSCRIPTION_ID="$(python3 -c "$AZ_PYTHON_PARSE_CODE; print(data['subscriptionId'])" <<< "$AZ_CRED")"
+          AZ_TENANT_ID="$(python3 -c "$AZ_PYTHON_PARSE_CODE; print(data['tenantId'])" <<< "$AZ_CRED")"
+
+          az login --service-principal -u "$AZ_CLIENT_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID"
+          az account set --subscription "$AZ_SUBSCRIPTION_ID"
+      env:
+        AZ_CRED: ${{ inputs.creds }}
     - uses: azure/CLI@v1
       with:
         azcliversion: ${{ inputs.azcliversion }}
