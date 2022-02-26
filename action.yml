@@ -114,7 +114,14 @@ runs:
                       continue
                   fi
                   echo "  $AZ_OLD_THUMBPRINT"
-                  az webapp config ssl delete "${AZ_ARGS[@]}" --certificate-thumbprint "$AZ_OLD_THUMBPRINT" >/dev/null
+                  if ! AZ_ERROR="$(az webapp config ssl delete "${AZ_ARGS[@]}" --certificate-thumbprint "$AZ_OLD_THUMBPRINT" 2>&1 1>/dev/null)"; then
+                      if grep -E "it is used for hostname|Conflict" <<< "$AZ_ERROR"; then
+                          echo "    Using in another web app, skipping"
+                          continue
+                      fi
+                      echo "$AZ_ERROR"
+                      exit 1
+                  fi
               done
           fi
       env:
