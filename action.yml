@@ -47,7 +47,7 @@ runs:
           AZ_TENANT_ID="$(python3 -c "$AZ_PYTHON_PARSE_CODE; print(data['tenantId'])" <<< "$AZ_CRED")"
 
           az login --service-principal -u "$AZ_CLIENT_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID"
-          az account set --subscription "$AZ_SUBSCRIPTION_ID"
+          az account set --subscription "$AZ_SUBSCRIPTION_ID" || true
       env:
         AZ_CRED: ${{ inputs.creds }}
     - uses: azure/CLI@v1
